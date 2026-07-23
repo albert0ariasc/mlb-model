@@ -1,0 +1,3 @@
+data/mlb.db
+data/statcast_raw.pkl
+__pycache__/

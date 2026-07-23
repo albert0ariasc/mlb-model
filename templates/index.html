@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MLB Model</title>
+<style>
+:root{--bg:#0d0f13;--panel:#151920;--line:#232935;--txt:#e8eaef;
+--dim:#7f8899;--ok:#4ade80;--blue:#60a5fa;--warn:#fbbf24;--red:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+font:14px/1.55 ui-monospace,"SF Mono",Menlo,monospace;padding:28px 18px}
+.wrap{max-width:1080px;margin:0 auto}
+header{display:flex;align-items:baseline;gap:20px;margin-bottom:24px}
+h1{font-size:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin:0}
+nav{display:flex;gap:4px;margin-left:auto}
+nav button{background:transparent;border:1px solid var(--line);color:var(--dim);
+padding:6px 14px;border-radius:6px;font:inherit;font-size:12px;cursor:pointer}
+nav button.on{background:var(--panel);color:var(--txt);border-color:#39414f}
+.panel{background:var(--panel);border:1px solid var(--line);
+border-radius:10px;padding:18px;margin-bottom:16px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:18px}
+input,select{background:#0a0c10;border:1px solid var(--line);color:var(--txt);
+border-radius:6px;padding:8px 11px;font:inherit;font-size:13px}
+button.act{background:var(--ok);color:#0b0d10;border:0;border-radius:6px;
+padding:9px 18px;font:inherit;font-weight:600;cursor:pointer}
+button.act:disabled{opacity:.4;cursor:default}
+.game{display:flex;justify-content:space-between;align-items:center;
+padding:13px 15px;border:1px solid var(--line);border-radius:8px;
+margin-bottom:7px;cursor:pointer;background:#11141a}
+.game:hover{border-color:#3b4553;background:#141821}
+.game .t{font-size:14px}
+.game .p{font-size:11px;color:var(--dim);margin-top:3px}
+.game .go{font-size:11px;color:var(--blue)}
+.hd{display:flex;justify-content:space-between;align-items:baseline;
+padding:12px 0;border-bottom:1px solid var(--line)}
+.hd .nm{font-size:15px}
+.hd .pc{font-size:22px;font-weight:600}
+.win{color:var(--ok)}
+h2{font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+color:var(--dim);font-weight:600;margin:24px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td{padding:6px 4px;border-bottom:1px solid #1b202a}
+td.r{text-align:right}
+.mo{color:var(--blue);font-size:12px}
+.dim{color:var(--dim)}
+.small{font-size:11px}
+.chip{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;
+letter-spacing:.05em;text-transform:uppercase}
+.chip.ok{background:#14301f;color:var(--ok)}
+.chip.wr{background:#332512;color:var(--warn)}
+.b{display:flex;align-items:center;gap:8px;margin-bottom:2px;font-size:11px}
+.b .l{width:26px;text-align:right;color:var(--dim)}
+.b .f{height:13px;background:var(--blue);opacity:.7;border-radius:2px;min-width:1px}
+.err{background:#2a1518;border:1px solid #5a2a30;color:#f5a3a8;
+padding:12px;border-radius:7px;font-size:13px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.kv{display:flex;justify-content:space-between;padding:5px 0;
+border-bottom:1px solid #1b202a;font-size:13px}
+.load{color:var(--dim);padding:20px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>MLB Model</h1>
+  <nav>
+    <button id="nHoy" class="on" onclick="tab('hoy')">Hoy</button>
+    <button id="nReg" onclick="tab('reg')">Registro</button>
+  </nav>
+</header>
+
+<div id="hoy">
+  <div class="bar">
+    <input type="date" id="fecha">
+    <button class="act" onclick="cargar()">Cargar juegos</button>
+    <span class="dim small" id="cnt"></span>
+  </div>
+  <div id="lista"></div>
+  <div id="sim"></div>
+</div>
+
+<div id="reg" style="display:none">
+  <div class="bar">
+    <button class="act" onclick="actualizar()">Bajar resultados</button>
+    <span class="dim small" id="pend"></span>
+  </div>
+  <div id="regOut"></div>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const pct=x=>(x*100).toFixed(1)+"%";
+const mo=x=>x==null?"—":(x>0?"+"+x:""+x);
+let FECHA=null;
+
+$("fecha").value=new Date().toISOString().slice(0,10);
+
+function tab(t){
+  $("hoy").style.display=t=="hoy"?"":"none";
+  $("reg").style.display=t=="reg"?"":"none";
+  $("nHoy").className=t=="hoy"?"on":"";
+  $("nReg").className=t=="reg"?"on":"";
+  if(t=="reg")cargarRegistro();
+}
+
+async function cargar(){
+  FECHA=$("fecha").value;
+  $("lista").innerHTML='<div class="load">Cargando…</div>';
+  $("sim").innerHTML="";
+  try{
+    const r=await(await fetch("/api/juegos?fecha="+FECHA)).json();
+    if(r.error){$("lista").innerHTML=`<div class="err">${r.error}</div>`;return}
+    $("cnt").textContent=r.juegos.length+" juegos";
+    $("lista").innerHTML=r.juegos.map(j=>`
+      <div class="game" onclick="simular(${j.game_pk})">
+        <div>
+          <div class="t">${j.away.nombre} <span class="dim">@</span> ${j.home.nombre}</div>
+          <div class="p">${j.away.pitcher||"?"} vs ${j.home.pitcher||"?"}
+            &nbsp;·&nbsp; ${j.estadio} (${j.park_hr})</div>
+        </div>
+        <div class="go">simular →</div>
+      </div>`).join("");
+  }catch(e){$("lista").innerHTML=`<div class="err">${e.message}</div>`}
+}
+
+async function simular(pk){
+  $("sim").innerHTML='<div class="load">Simulando 8,000 juegos…</div>';
+  window.scrollTo({top:document.body.scrollHeight,behavior:"smooth"});
+  try{
+    const res=await fetch("/api/simular_juego",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({game_pk:pk,fecha:FECHA,n:8000})});
+    const d=await res.json();
+    if(!res.ok){$("sim").innerHTML=`<div class="err">${d.error}</div>`;return}
+    render(d);
+  }catch(e){$("sim").innerHTML=`<div class="err">${e.message}</div>`}
+}
+
+function render(d){
+  const aw=d.p_gana_a>d.p_gana_b, mx=Math.max(...d.dist.map(x=>x.p));
+  const nm={a:d.away,b:d.home};
+  $("sim").innerHTML=`
+  <div class="panel">
+    <div style="margin-bottom:6px">
+      <span class="chip ${d.confirmado?'ok':'wr'}">
+        ${d.confirmado?'lineup confirmado':'roster estimado'}</span>
+      <span class="dim small">&nbsp; ${d.estadio} · HR ${d.park_hr}</span>
+    </div>
+    <div class="hd">
+      <span class="nm ${aw?'win':''}">${d.away}
+        <span class="dim small">${d.abridor_a}</span></span>
+      <span><span class="dim small">${d.carreras_a.toFixed(2)}</span>
+        &nbsp;<span class="pc ${aw?'win':''}">${pct(d.p_gana_a)}</span>
+        &nbsp;<span class="mo">${mo(d.momio_a)}</span></span>
+    </div>
+    <div class="hd">
+      <span class="nm ${!aw?'win':''}">${d.home}
+        <span class="dim small">${d.abridor_b}</span></span>
+      <span><span class="dim small">${d.carreras_b.toFixed(2)}</span>
+        &nbsp;<span class="pc ${!aw?'win':''}">${pct(d.p_gana_b)}</span>
+        &nbsp;<span class="mo">${mo(d.momio_b)}</span></span>
+    </div>
+
+    <div class="grid2" style="margin-top:22px">
+      <div>
+        <h2>Totales de carreras · esperado ${d.total_prom.toFixed(2)}</h2>
+        <table>${d.mercado_carreras.map(x=>`<tr>
+          <td>${x.linea}</td>
+          <td class="r">Más ${pct(x.over)} <span class="mo">${mo(x.momio_over)}</span></td>
+          <td class="r">Menos ${pct(x.under)} <span class="mo">${mo(x.momio_under)}</span></td>
+        </tr>`).join("")}</table>
+
+        <h2>Totales de hits · esperado ${d.hits_prom.toFixed(2)}</h2>
+        <table>${d.mercado_hits.map(x=>`<tr>
+          <td>${x.linea}</td>
+          <td class="r">Más ${pct(x.over)} <span class="mo">${mo(x.momio_over)}</span></td>
+          <td class="r">Menos ${pct(x.under)} <span class="mo">${mo(x.momio_under)}</span></td>
+        </tr>`).join("")}</table>
+
+        <h2>Hándicap</h2>
+        <table>${d.mercado_handicap.map(x=>`
+          <tr><td>${d.away} +${x.linea}</td>
+            <td class="r">${pct(x.a_mas)} <span class="mo">${mo(x.momio_a_mas)}</span></td></tr>
+          <tr><td>${d.away} −${x.linea}</td>
+            <td class="r">${pct(x.a_menos)} <span class="mo">${mo(x.momio_a_menos)}</span></td></tr>
+          <tr><td>${d.home} +${x.linea}</td>
+            <td class="r">${pct(x.b_mas)} <span class="mo">${mo(x.momio_b_mas)}</span></td></tr>
+          <tr><td>${d.home} −${x.linea}</td>
+            <td class="r">${pct(x.b_menos)} <span class="mo">${mo(x.momio_b_menos)}</span></td></tr>
+        `).join("")}</table>
+      </div>
+
+      <div>
+        <h2>Ganador &amp; total</h2>
+        <table>${d.combinados.map(c=>`<tr>
+          <td class="small">${nm[c.equipo]} y ${c.lado=='over'?'más':'menos'} de ${c.linea}</td>
+          <td class="r">${pct(c.p)} <span class="mo">${mo(c.momio)}</span></td>
+        </tr>`).join("")}</table>
+
+        <h2>Marcadores probables</h2>
+        <table>${d.marcadores.map(m=>`<tr>
+          <td>${m.a} – ${m.b}</td>
+          <td class="r dim">${pct(m.p)} · ${m.a>m.b?d.away:d.home}</td>
+        </tr>`).join("")}</table>
+
+        <h2>Distribución de carreras</h2>
+        ${d.dist.map(x=>`<div class="b"><span class="l">${x.t}</span>
+          <div class="f" style="width:${(x.p/mx*62).toFixed(1)}%"></div>
+          <span class="dim">${pct(x.p)}</span></div>`).join("")}
+      </div>
+    </div>
+
+    <h2>Lineups usados</h2>
+    <div class="grid2">
+      <div class="small dim">${d.lineup_a.map((n,i)=>`${i+1}. ${n}`).join("<br>")}</div>
+      <div class="small dim">${d.lineup_b.map((n,i)=>`${i+1}. ${n}`).join("<br>")}</div>
+    </div>
+  </div>`;
+}
+
+async function actualizar(){
+  $("regOut").innerHTML='<div class="load">Bajando resultados…</div>';
+  await fetch("/api/actualizar",{method:"POST"});
+  cargarRegistro();
+}
+
+async function cargarRegistro(){
+  $("regOut").innerHTML='<div class="load">Cargando…</div>';
+  const d=await(await fetch("/api/registro")).json();
+  $("pend").textContent=d.pendientes+" pendientes de resultado";
+  if(!d.n){$("regOut").innerHTML=
+    '<div class="panel dim">Sin resultados todavía. Corre predicciones y '+
+    'vuelve mañana.</div>';return}
+
+  const dif=d.acierto-d.baseline;
+  $("regOut").innerHTML=`
+  <div class="panel">
+    <div class="kv"><span>Juegos con resultado</span><b>${d.n}</b></div>
+    <div class="kv"><span>Ganador acertado</span>
+      <b class="${d.acierto>.524?'win':''}">${pct(d.acierto)}</b></div>
+    <div class="kv"><span>Baseline (gana local)</span>
+      <span class="dim">${pct(d.baseline)}</span></div>
+    <div class="kv"><span>Diferencia vs baseline</span>
+      <b class="${dif>0?'win':''}" style="${dif<0?'color:var(--red)':''}">
+      ${dif>0?'+':''}${(dif*100).toFixed(1)} pts</b></div>
+    <div class="kv"><span>Brier score</span><b>${d.brier.toFixed(4)}</b></div>
+    <div class="kv"><span>Carreras pred / real</span>
+      <span>${d.pred_prom.toFixed(2)} / ${d.real_prom.toFixed(2)}
+      <span class="dim">(sesgo ${d.sesgo>0?'+':''}${d.sesgo.toFixed(2)})</span></span></div>
+    <div class="kv"><span>Error promedio</span><b>${d.error.toFixed(2)}</b></div>
+
+    ${d.n<100?'<div class="small dim" style="margin-top:14px">'+
+      'Muestra chica — estos números no son confiables todavía. '+
+      'Se vuelven informativos alrededor de 100 juegos.</div>':''}
+
+    <h2>Calibración over 7.5</h2>
+    <table>${d.calibracion.map(c=>`<tr>
+      <td>Modelo dice ${c.rango}</td>
+      <td class="r">real <b>${pct(c.real)}</b>
+      <span class="dim small">n=${c.n}</span></td>
+    </tr>`).join("")}</table>
+
+    <h2>Últimas predicciones</h2>
+    <table>${d.ultimos.map(u=>`<tr>
+      <td class="small dim">${u.fecha}</td>
+      <td class="small">${u.away} @ ${u.home}</td>
+      <td class="r small">${pct(u.p)}</td>
+      <td class="r small dim">${u.pred.toFixed(1)} / ${u.real}</td>
+      <td class="r small">${u.marcador}</td>
+      <td class="r">${u.ok?'<span class="win">✓</span>':'<span style="color:var(--red)">✗</span>'}</td>
+    </tr>`).join("")}</table>
+  </div>`;
+}
+
+cargar();
+</script>
+</body>
+</html>

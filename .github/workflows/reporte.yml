@@ -1,0 +1,55 @@
+name: Reporte MLB
+
+on:
+  schedule:
+    # cada hora de 15:00 a 03:00 UTC (9am - 9pm hora del centro de México)
+    - cron: '0 15-23,0-3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: pip install pybaseball pandas numpy scipy requests
+
+      - name: Restaurar cache de datos
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: mlb-data-${{ github.run_id }}
+          restore-keys: mlb-data-
+
+      - name: Crear DB si no existe
+        run: python db.py
+
+      - name: Actualizar stats (solo primera corrida del día)
+        run: |
+          HORA=$(date -u +%H)
+          if [ "$HORA" = "15" ] || [ ! -f data/mlb.db ]; then
+            python ingest.py
+          else
+            echo "Saltando ingesta"
+          fi
+
+      - name: Generar reporte
+        run: python reporte.py
+
+      - name: Publicar
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/ data/predicciones.db 2>/dev/null || git add docs/
+          git diff --quiet && git diff --staged --quiet || \
+            git commit -m "Reporte $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
