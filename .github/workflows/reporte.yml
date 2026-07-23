@@ -2,7 +2,6 @@ name: Reporte MLB
 
 on:
   schedule:
-    # cada hora de 15:00 a 03:00 UTC (9am - 9pm hora del centro de México)
     - cron: '0 15-23,0-3 * * *'
   workflow_dispatch:
 
@@ -18,28 +17,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Instalar dependencias
-        run: pip install pybaseball pandas numpy scipy requests
+        run: pip install -r requirements.txt
 
-      - name: Restaurar cache de datos
+      - name: Cache de datos
         uses: actions/cache@v4
         with:
           path: data
           key: mlb-data-${{ github.run_id }}
           restore-keys: mlb-data-
 
-      - name: Crear DB si no existe
+      - name: Crear DB
         run: python db.py
 
-      - name: Actualizar stats (solo primera corrida del día)
+      - name: Actualizar stats
         run: |
-          HORA=$(date -u +%H)
-          if [ "$HORA" = "15" ] || [ ! -f data/mlb.db ]; then
+          if [ ! -f data/mlb.db ] || [ ! -s data/mlb.db ]; then
             python ingest.py
           else
-            echo "Saltando ingesta"
+            COUNT=$(python -c "from db import get_conn; print(get_conn().execute('SELECT COUNT(*) FROM batter_stats').fetchone()[0])" 2>/dev/null || echo 0)
+            if [ "$COUNT" -lt 100 ]; then
+              python ingest.py
+            else
+              echo "Stats ya cargadas ($COUNT filas)"
+            fi
           fi
 
       - name: Generar reporte
@@ -49,7 +51,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add docs/ data/predicciones.db 2>/dev/null || git add docs/
-          git diff --quiet && git diff --staged --quiet || \
-            git commit -m "Reporte $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git add docs/
+          git diff --staged --quiet || git commit -m "Reporte $(date -u +'%Y-%m-%d %H:%M UTC')"
           git push
